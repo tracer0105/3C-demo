@@ -41,6 +41,8 @@ public class IdempotencyMiddleware
 
         if (_cache.TryGetValue(key, out var cached) && !cached.IsExpired)
         {
+            // Note: there is an inherent race between the expiry check and the write, but
+            // serving a slightly-expired cached response is harmless for idempotency semantics.
             _logger.LogDebug("Idempotency cache hit for key {Key}", key);
             context.Response.StatusCode = cached.StatusCode;
             context.Response.ContentType = "application/json";

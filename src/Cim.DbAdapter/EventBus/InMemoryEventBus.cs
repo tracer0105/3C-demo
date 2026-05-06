@@ -11,7 +11,8 @@ namespace Cim.DbAdapter.EventBus;
 public sealed class InMemoryEventBus : IEventBus, IAsyncDisposable
 {
     private readonly ILogger<InMemoryEventBus> _logger;
-    private readonly ConcurrentDictionary<Type, object> _channels = new();
+    // Keyed by event type; values are ChannelHolder<T> instances (type-safe wrappers).
+    private readonly ConcurrentDictionary<Type, IChannelHolder> _channels = new();
     private readonly ConcurrentDictionary<Type, List<Func<object, CancellationToken, Task>>> _handlers = new();
     private readonly CancellationTokenSource _cts = new();
 
@@ -20,25 +21,23 @@ public sealed class InMemoryEventBus : IEventBus, IAsyncDisposable
         _logger = logger;
     }
 
-    private Channel<T> GetOrCreateChannel<T>() where T : class
+    private ChannelHolder<T> GetOrCreateChannel<T>() where T : class
     {
-        return (Channel<T>)_channels.GetOrAdd(typeof(T), type =>
+        return (ChannelHolder<T>)_channels.GetOrAdd(typeof(T), type =>
         {
-            var ch = Channel.CreateUnbounded<T>(new UnboundedChannelOptions
-            {
-                SingleReader = false,
-                SingleWriter = false
-            });
-            // Start a background pump for this channel
-            var _ = PumpAsync(ch, _cts.Token);
-            return ch;
+            var holder = new ChannelHolder<T>();
+            var pumpTask = PumpAsync(holder.Channel, _cts.Token);
+            pumpTask.ContinueWith(
+                t => _logger.LogError(t.Exception, "Event pump error for {EventType}", typeof(T).Name),
+                TaskContinuationOptions.OnlyOnFaulted);
+            return holder;
         });
     }
 
     public async Task PublishAsync<T>(T message, CancellationToken ct = default) where T : class
     {
-        var channel = GetOrCreateChannel<T>();
-        await channel.Writer.WriteAsync(message, ct);
+        var holder = GetOrCreateChannel<T>();
+        await holder.Channel.Writer.WriteAsync(message, ct);
         _logger.LogDebug("Published {EventType} [{MsgId}]", typeof(T).Name,
             (message as Cim.DbAdapter.Models.CimEventMessage)?.MessageId ?? "-");
     }
@@ -46,7 +45,8 @@ public sealed class InMemoryEventBus : IEventBus, IAsyncDisposable
     public IDisposable Subscribe<T>(Func<T, CancellationToken, Task> handler) where T : class
     {
         GetOrCreateChannel<T>(); // ensure channel + pump exist
-        var list = (List<Func<object, CancellationToken, Task>>)_handlers.GetOrAdd(typeof(T), _ => new List<Func<object, CancellationToken, Task>>());
+        var list = (List<Func<object, CancellationToken, Task>>)_handlers.GetOrAdd(
+            typeof(T), _ => new List<Func<object, CancellationToken, Task>>());
         Func<object, CancellationToken, Task> wrapper = (obj, ct) => handler((T)obj, ct);
         lock (list) { list.Add(wrapper); }
         return new Subscription(() => { lock (list) { list.Remove(wrapper); } });
@@ -70,11 +70,25 @@ public sealed class InMemoryEventBus : IEventBus, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
-        foreach (var ch in _channels.Values)
-        {
-            if (ch is IAsyncDisposable d) await d.DisposeAsync();
-        }
+        foreach (var holder in _channels.Values)
+            await holder.DisposeAsync();
         _cts.Dispose();
+    }
+
+    // ─── Type-safe channel wrapper ─────────────────────────────────────────
+
+    private interface IChannelHolder : IAsyncDisposable { }
+
+    private sealed class ChannelHolder<T> : IChannelHolder where T : class
+    {
+        public Channel<T> Channel { get; } = System.Threading.Channels.Channel.CreateUnbounded<T>(
+            new UnboundedChannelOptions { SingleReader = false, SingleWriter = false });
+
+        public ValueTask DisposeAsync()
+        {
+            Channel.Writer.TryComplete();
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class Subscription : IDisposable

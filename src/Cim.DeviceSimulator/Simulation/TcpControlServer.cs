@@ -49,7 +49,10 @@ public class TcpControlServer
             catch (OperationCanceledException) { break; }
             catch (Exception ex) { _logger.LogError(ex, "TCP accept error"); continue; }
 
-            _ = HandleClientAsync(client, ct);
+            var clientTask = HandleClientAsync(client, ct);
+            _ = clientTask.ContinueWith(
+                t => _logger.LogError(t.Exception, "Unhandled exception in TCP client handler"),
+                TaskContinuationOptions.OnlyOnFaulted);
         }
 
         _listener.Stop();
