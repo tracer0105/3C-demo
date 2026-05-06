@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Cim.DbAdapter/Cim.DbAdapter.csproj" />
+    <Project Path="src/Cim.DeviceSimulator/Cim.DeviceSimulator.csproj" />
+    <Project Path="src/Cim.MqWorker/Cim.MqWorker.csproj" />
+    <Project Path="src/Cim.RestApi/Cim.RestApi.csproj" />
+  </Folder>
+</Solution>
