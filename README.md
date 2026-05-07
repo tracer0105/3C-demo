@@ -1,5 +1,6 @@
 # 3C Industry CIM Integration Demo
-欢迎各位踊跃与我探讨技术问题-VX：dotnet_AndersJiang
+
+## 欢迎各位踊跃与我探讨技术问题-VX：dotnet_AndersJiang
 A .NET 8 solution simulating a **3C (Consumer Electronics / Computer / Communication) shop-floor CIM integration** with REST API, message worker, SQLite persistence, and device simulation.
 
 ## Solution Structure
