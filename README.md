@@ -1,4 +1,4 @@
-# 3C Industry CIM Integration Demo
+# 3C-Demo
 
 ## 欢迎各位踊跃与我探讨技术问题-VX：dotnet_AndersJiang
 
